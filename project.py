@@ -1,33 +1,26 @@
 import os
-
+from pathlib import Path
 from dotenv import load_dotenv
-
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, Literal
 
 from langgraph.graph.message import add_messages
-
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-
 from langgraph.graph import StateGraph, START, END
-
 from langchain_community.document_loaders import PyPDFLoader
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from langchain_community.vectorstores import FAISS
 
-from typing import Literal
 
-# =========================
+# ============================================================
 # ENVIRONMENT
-# =========================
+# ============================================================
 
 load_dotenv()
 
 
-# =========================
+# ============================================================
 # LLM
-# =========================
+# ============================================================
 
 llm = ChatOpenAI(
     model="gpt-5",
@@ -35,18 +28,18 @@ llm = ChatOpenAI(
 )
 
 
-# =========================
+# ============================================================
 # EMBEDDINGS
-# =========================
+# ============================================================
 
 embeddings = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
 
-# =========================
+# ============================================================
 # STEP 1 - BUILDING RAG RETRIEVERS
-# =========================
+# ============================================================
 
 def build_retriever(pdf_path: str):
     """
@@ -55,10 +48,26 @@ def build_retriever(pdf_path: str):
     and returns a retriever.
     """
 
-    loader = PyPDFLoader(pdf_path)
+    # Convert to Path for reliable cross-platform handling
+    pdf_file = Path(pdf_path)
+
+    # Check that the PDF actually exists
+    if not pdf_file.exists():
+        raise FileNotFoundError(
+            f"PDF file not found: {pdf_file}"
+        )
+
+    if not pdf_file.is_file():
+        raise FileNotFoundError(
+            f"Path is not a file: {pdf_file}"
+        )
+
+    # Load PDF
+    loader = PyPDFLoader(str(pdf_file))
 
     document = loader.load()
 
+    # Split document into chunks
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=100
@@ -66,35 +75,74 @@ def build_retriever(pdf_path: str):
 
     chunks = splitter.split_documents(document)
 
+    # Create FAISS vector store
     vectorstore = FAISS.from_documents(
         chunks,
         embeddings
     )
 
+    # Return retriever
     return vectorstore.as_retriever(
         search_kwargs={"k": 4}
     )
 
+
+# ============================================================
+# PDF DIRECTORY
+# ============================================================
+
+# This gets the directory where project.py is located.
+#
+# Local:
+# C:\...\smart-college-assistant\
+#
+# Streamlit Cloud:
+# /mount/src/smart-college-assistant/
+#
+# Therefore this works on both environments.
+
+BASE_DIR = Path(__file__).resolve().parent
+
+PDF_DIR = BASE_DIR / "PDFs"
+
+
+# ============================================================
+# PDF FILE PATHS
+# ============================================================
+
+ACADEMICS_PDF = PDF_DIR / "01_BKBIET_Academics.pdf"
+
+FEES_PDF = PDF_DIR / "02_BKBIET_Fees_Hostel_Scholarships.pdf"
+
+PLACEMENTS_PDF = PDF_DIR / "03_BKBIET_Placements_Recruiters.pdf"
+
+FACULTY_PDF = PDF_DIR / "04_BKBIET_Faculty_Staff_Leadership.pdf"
+
+
+# ============================================================
+# BUILD RETRIEVERS
+# ============================================================
+
 academic_retriever = build_retriever(
-    r"C:\Users\DHARMESH SHARMA\OneDrive\Desktop\langgraph-agent-workflows\conditional-workflow\PDFs\01_BKBIET_Academics.pdf"
+    str(ACADEMICS_PDF)
 )
 
 fees_retriever = build_retriever(
-    r"C:\Users\DHARMESH SHARMA\OneDrive\Desktop\langgraph-agent-workflows\conditional-workflow\PDFs\02_BKBIET_Fees_Hostel_Scholarships.pdf"
+    str(FEES_PDF)
 )
 
 placement_retriever = build_retriever(
-    r"C:\Users\DHARMESH SHARMA\OneDrive\Desktop\langgraph-agent-workflows\conditional-workflow\PDFs\03_BKBIET_Placements_Recruiters.pdf"
+    str(PLACEMENTS_PDF)
 )
 
 faculty_retriever = build_retriever(
-    r"C:\Users\DHARMESH SHARMA\OneDrive\Desktop\langgraph-agent-workflows\conditional-workflow\PDFs\04_BKBIET_Faculty_Staff_Leadership.pdf"
+    str(FACULTY_PDF)
 )
 
 
-# =========================
+# ============================================================
 # STEP 2 - STATE
-# =========================
+# ============================================================
 
 class State(TypedDict):
 
@@ -107,9 +155,9 @@ class State(TypedDict):
     retrieved_context: str
 
 
-# =========================
+# ============================================================
 # STEP 3 - CLASSIFIER NODE
-# =========================
+# ============================================================
 
 def classifier_node(state: State) -> dict:
     """
@@ -120,42 +168,43 @@ def classifier_node(state: State) -> dict:
     last_message = state["messages"][-1].content
 
     prompt = f"""
-    You are a query classifier for a Smart College Chatbot.
+You are a query classifier for a Smart College Chatbot.
 
-    Analyze the user's latest query and classify it into exactly
-    one of these categories:
+Analyze the user's latest query and classify it into exactly
+one of these categories:
 
-    - academic — courses, programs, departments, curriculum,
-      subjects, admission-related academic information,
-      academic rules, or college academics.
+- academic — courses, programs, departments, curriculum,
+  subjects, admission-related academic information,
+  academic rules, or college academics.
 
-    - fees — tuition fees, hostel fees, scholarships,
-      financial information, hostel facilities, or payment-related queries.
+- fees — tuition fees, hostel fees, scholarships,
+  financial information, hostel facilities, or payment-related queries.
 
-    - placement — placements, recruiters, companies, packages,
-      placement statistics, internships, or career-related college information.
+- placement — placements, recruiters, companies, packages,
+  placement statistics, internships, or career-related college information.
 
-    - faculty — faculty members, teachers, staff, leadership,
-      departments' faculty, or college administration.
+- faculty — faculty members, teachers, staff, leadership,
+  departments' faculty, or college administration.
 
-    - general — greetings, casual conversation, general questions,
-      general AI interaction, or queries that do not belong
-      to the other categories.
+- general — greetings, casual conversation, general questions,
+  general AI interaction, or queries that do not belong
+  to the other categories.
 
-    Return only the category name in lowercase.
+Return only the category name in lowercase.
 
-    Possible outputs:
-    academic
-    fees
-    placement
-    faculty
-    general
+Possible outputs:
 
-    Do not provide an explanation or any additional text.
+academic
+fees
+placement
+faculty
+general
 
-    User query:
-    {last_message}
-    """
+Do not provide an explanation or any additional text.
+
+User query:
+{last_message}
+"""
 
     response = llm.invoke(prompt)
 
@@ -181,9 +230,9 @@ def classifier_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # ACADEMIC NODE
-# =========================
+# ============================================================
 
 def academic_node(state: State) -> dict:
     """
@@ -204,9 +253,9 @@ def academic_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # FEES NODE
-# =========================
+# ============================================================
 
 def fees_node(state: State) -> dict:
     """
@@ -227,9 +276,9 @@ def fees_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # PLACEMENT NODE
-# =========================
+# ============================================================
 
 def placement_node(state: State) -> dict:
     """
@@ -250,9 +299,9 @@ def placement_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # FACULTY NODE
-# =========================
+# ============================================================
 
 def faculty_node(state: State) -> dict:
     """
@@ -273,9 +322,9 @@ def faculty_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # GENERAL NODE
-# =========================
+# ============================================================
 
 def general_node(state: State) -> dict:
     """
@@ -288,9 +337,9 @@ def general_node(state: State) -> dict:
     }
 
 
-# =========================
+# ============================================================
 # RESPONSE NODE
-# =========================
+# ============================================================
 
 def response_node(state: State) -> dict:
     """
@@ -313,6 +362,10 @@ def response_node(state: State) -> dict:
         ""
     )
 
+    # --------------------------------------------------------
+    # GENERAL RESPONSE
+    # --------------------------------------------------------
+
     if context == "NO_RETRIEVAL_NEEDED":
 
         prompt = (
@@ -323,6 +376,10 @@ def response_node(state: State) -> dict:
             f"and conversational.\n\n"
             f"Question: {query}"
         )
+
+    # --------------------------------------------------------
+    # RAG RESPONSE
+    # --------------------------------------------------------
 
     else:
 
@@ -354,15 +411,22 @@ def response_node(state: State) -> dict:
             ("ai", response.content.strip())
         ]
     }
-    
-    
- #step 4 crete a router function
 
+
+# ============================================================
+# STEP 4 - ROUTER FUNCTION
+# ============================================================
 
 def route_query(
     state: State
-) -> Literal["academic_rag", "fees_rag", "placement_rag", "faculty_rag", "general"]:
-    
+) -> Literal[
+    "academic_rag",
+    "fees_rag",
+    "placement_rag",
+    "faculty_rag",
+    "general"
+]:
+
     query_type = state["query_type"]
 
     if query_type == "academic":
@@ -379,26 +443,68 @@ def route_query(
 
     else:
         return "general"
-    
-    
-# step 5 building a graph
+
+
+# ============================================================
+# STEP 5 - BUILDING LANGGRAPH
+# ============================================================
 
 graph = StateGraph(State)
 
-graph.add_node("classifier" , classifier_node)
-graph.add_node("academic_rag" , academic_node)
-graph.add_node("fees_rag" , fees_node)
-graph.add_node("placement_rag" , placement_node)
-graph.add_node("faculty_rag" , faculty_node)
-graph.add_node("general" , general_node)
-graph.add_node("response" , response_node)
+
+# ============================================================
+# ADD NODES
+# ============================================================
+
+graph.add_node(
+    "classifier",
+    classifier_node
+)
+
+graph.add_node(
+    "academic_rag",
+    academic_node
+)
+
+graph.add_node(
+    "fees_rag",
+    fees_node
+)
+
+graph.add_node(
+    "placement_rag",
+    placement_node
+)
+
+graph.add_node(
+    "faculty_rag",
+    faculty_node
+)
+
+graph.add_node(
+    "general",
+    general_node
+)
+
+graph.add_node(
+    "response",
+    response_node
+)
 
 
+# ============================================================
+# EDGES
+# ============================================================
 
-# edges
+graph.add_edge(
+    START,
+    "classifier"
+)
 
 
-graph.add_edge(START , "classifier")
+# ============================================================
+# CONDITIONAL ROUTING
+# ============================================================
 
 graph.add_conditional_edges(
     "classifier",
@@ -413,18 +519,48 @@ graph.add_conditional_edges(
 )
 
 
+# ============================================================
+# RAG NODES -> RESPONSE
+# ============================================================
 
-graph.add_edge("academic_rag" , "response")
+graph.add_edge(
+    "academic_rag",
+    "response"
+)
 
-graph.add_edge("fees_rag" , "response")
+graph.add_edge(
+    "fees_rag",
+    "response"
+)
 
-graph.add_edge("placement_rag" , "response")
+graph.add_edge(
+    "placement_rag",
+    "response"
+)
 
-graph.add_edge("faculty_rag" , "response")
+graph.add_edge(
+    "faculty_rag",
+    "response"
+)
 
-graph.add_edge("general" , "response")
+graph.add_edge(
+    "general",
+    "response"
+)
 
 
-graph.add_edge("response" , END)
+# ============================================================
+# RESPONSE -> END
+# ============================================================
+
+graph.add_edge(
+    "response",
+    END
+)
+
+
+# ============================================================
+# COMPILE GRAPH
+# ============================================================
 
 app = graph.compile()
