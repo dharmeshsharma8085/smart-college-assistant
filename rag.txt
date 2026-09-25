@@ -1,0 +1,18 @@
+RAG
+
+RAG stands for Retrieval-Augmented Generation.
+
+RAG is a technique that combines information retrieval with a Large Language Model (LLM). Before generating an answer, the system retrieves relevant information from an external knowledge source and provides that information to the LLM as context.
+
+This allows the model to generate answers based on specific and up-to-date information rather than relying only on its pre-trained knowledge.
+
+A typical RAG process is:
+
+User Query
+→ Retrieve Relevant Information
+→ Provide Retrieved Context to LLM
+→ Generate Answer
+
+In simple words:
+
+RAG retrieves relevant information from a knowledge base and gives it to an LLM so that the LLM can generate a more accurate and context-aware answer.

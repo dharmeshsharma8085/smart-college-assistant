@@ -1,0 +1,9 @@
+ROUTE
+
+A route is a path or decision direction that determines where a process, request, or piece of information should go next.
+
+In a workflow, routing means examining the current input or state and selecting the appropriate next step, node, or branch.
+
+In simple words:
+
+A route decides where the workflow should go next based on the given condition or information.

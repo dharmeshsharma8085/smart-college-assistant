@@ -1,0 +1,18 @@
+CONDITIONAL EDGES
+
+A conditional edge is a connection in a workflow that determines the next node or step based on a specific condition or decision.
+
+In LangGraph, conditional edges are used to route the workflow dynamically. A routing function evaluates the current state and returns a value that determines which node should execute next.
+
+For example:
+
+If the user's query is about fees → go to the Fee Agent.
+
+If the user's query is about academics → go to the Academic Agent.
+
+If the user's query is about placements → go to the Placement Agent.
+
+In simple words:
+
+A conditional edge dynamically chooses the next node in a workflow based on the current state or condition.
+ 
